@@ -4,6 +4,7 @@ class TeamStatusTracker {
         this.currentYear = new Date().getFullYear();
         this.teamMembers = [];
         this.statusData = {};
+        this.database = null; // Initialize database property
         
         this.init();
     }
@@ -13,6 +14,11 @@ class TeamStatusTracker {
         this.setupEventListeners();
         this.updateWeekDisplay();
         this.renderTeamGrid();
+        
+        // Initialize Firebase if available
+        if (typeof firebase !== 'undefined') {
+            this.initFirebase();
+        }
     }
 
     getCurrentWeekNumber() {
@@ -93,17 +99,24 @@ class TeamStatusTracker {
             }
         });
 
-        // Save and load data
-        document.getElementById('save-data').addEventListener('click', () => {
-            this.saveToLocalStorage();
-            alert('Data saved successfully!');
-        });
+        // Save and load data buttons (only show if no Firebase)
+        const saveBtn = document.getElementById('save-data');
+        const loadBtn = document.getElementById('load-data');
+        
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => {
+                this.saveToLocalStorage();
+                alert('Data saved successfully!');
+            });
+        }
 
-        document.getElementById('load-data').addEventListener('click', () => {
-            this.loadFromLocalStorage();
-            this.renderTeamGrid();
-            alert('Data loaded successfully!');
-        });
+        if (loadBtn) {
+            loadBtn.addEventListener('click', () => {
+                this.loadFromLocalStorage();
+                this.renderTeamGrid();
+                alert('Data loaded successfully!');
+            });
+        }
     }
 
     updateWeekDisplay() {
@@ -118,6 +131,7 @@ class TeamStatusTracker {
     addTeamMember(name) {
         if (!this.teamMembers.includes(name)) {
             this.teamMembers.push(name);
+            this.saveData(); // Use unified save method
             this.renderTeamGrid();
         }
     }
@@ -132,6 +146,7 @@ class TeamStatusTracker {
                     delete this.statusData[key];
                 }
             });
+            this.saveData(); // Use unified save method
             this.renderTeamGrid();
         }
     }
@@ -211,6 +226,39 @@ class TeamStatusTracker {
         });
     }
 
+    initFirebase() {
+        try {
+            // Replace with your Firebase config
+            const firebaseConfig = {
+                apiKey: "your-api-key",
+                authDomain: "your-project.firebaseapp.com",
+                databaseURL: "https://your-project-default-rtdb.firebaseio.com/",
+                projectId: "your-project-id",
+                storageBucket: "your-project.appspot.com",
+                messagingSenderId: "123456789",
+                appId: "your-app-id"
+            };
+            
+            firebase.initializeApp(firebaseConfig);
+            this.database = firebase.database();
+            
+            // Listen for real-time updates
+            this.database.ref('teamData').on('value', (snapshot) => {
+                const data = snapshot.val();
+                if (data) {
+                    this.teamMembers = data.teamMembers || [];
+                    this.statusData = data.statusData || {};
+                    this.renderTeamGrid();
+                }
+            });
+
+            console.log('Firebase initialized successfully');
+        } catch (error) {
+            console.error('Firebase initialization failed:', error);
+            this.database = null;
+        }
+    }
+
     cycleStatus(element, memberName, year, week, day) {
         const statuses = ['office', 'wfh', 'leave'];
         const currentStatus = this.getMemberStatus(memberName, year, week, day);
@@ -220,14 +268,51 @@ class TeamStatusTracker {
 
         element.className = 'status-circle ' + nextStatus;
         this.setMemberStatus(memberName, year, week, day, nextStatus);
+        
+        // Auto-save
+        this.saveData();
+    }
+
+    // Unified save method - tries Firebase first, falls back to localStorage
+    saveData() {
+        if (this.database) {
+            this.saveToFirebase();
+        } else {
+            this.saveToLocalStorage();
+        }
+    }
+
+    saveToFirebase() {
+        if (!this.database) {
+            this.saveToLocalStorage();
+            return;
+        }
+
+        const data = {
+            teamMembers: this.teamMembers,
+            statusData: this.statusData,
+            lastUpdated: new Date().toISOString()
+        };
+        
+        this.database.ref('teamData').set(data)
+            .then(() => {
+                console.log('Data saved to Firebase successfully!');
+            })
+            .catch((error) => {
+                console.error('Error saving to Firebase:', error);
+                // Fallback to localStorage
+                this.saveToLocalStorage();
+            });
     }
 
     saveToLocalStorage() {
         const data = {
             teamMembers: this.teamMembers,
-            statusData: this.statusData
+            statusData: this.statusData,
+            lastUpdated: new Date().toISOString()
         };
         localStorage.setItem('teamStatusData', JSON.stringify(data));
+        console.log('Data saved to localStorage');
     }
 
     loadFromLocalStorage() {
@@ -236,6 +321,7 @@ class TeamStatusTracker {
             const data = JSON.parse(saved);
             this.teamMembers = data.teamMembers || [];
             this.statusData = data.statusData || {};
+            console.log('Data loaded from localStorage');
         }
     }
 }
